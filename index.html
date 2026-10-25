@@ -41,7 +41,9 @@ button.on{background:#ffeb3b;outline:3px solid #fff;outline-offset:-7px}
 #vhud{right:6px;top:50%;transform:translateY(-50%);flex-direction:column;padding:4px}
 #zv{font-size:10px}
 #zv{min-width:38px;text-align:center}
-#grav{width:130px;height:28px;accent-color:#ffeb3b;cursor:pointer}
+#grav{width:130px;height:36px;margin:0;accent-color:#ffeb3b;cursor:pointer;touch-action:none}
+#ghud .gstep{width:36px;min-width:36px;height:34px;font-size:22px;font-weight:900;touch-action:none}
+#gv{font-variant-numeric:tabular-nums}
 #gv{min-width:44px;text-align:right}
 #panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;background:#fff8e1;border:4px solid var(--ink);border-radius:16px;box-shadow:0 5px 0 var(--ink);padding:10px 12px;z-index:3;display:none;font-size:13px}
 #panel.open{display:block}
@@ -60,7 +62,7 @@ button.on{background:#ffeb3b;outline:3px solid #fff;outline-offset:-7px}
  button{width:46px;min-width:46px;height:46px}
  #top{gap:4px}#top .sep{display:none}#top button{width:41px;min-width:41px;height:44px;font-size:18px}#top button small{font-size:7.5px}
  .bar{padding:5px;gap:5px}
- #grav{width:110px}
+ #grav{width:96px}
  #bot{flex-wrap:wrap;justify-content:center;row-gap:5px}#bot .sep:last-of-type{flex-basis:100%;height:0;width:0}
  #bot .sw{width:24px;min-width:24px;height:24px}
 }
@@ -92,7 +94,7 @@ button.on{background:#ffeb3b;outline:3px solid #fff;outline-offset:-7px}
  <div id="left" class="bar"></div>
  <div id="stage"><canvas id="c"></canvas>
   <div id="ghud" class="hud" title="Gravity · scroll the mouse wheel here to change it">
-   <div class="row"><button id="gtog" title="Show/hide gravity presets" style="width:30px;min-width:30px;height:28px">🌍</button><input id="grav" type="range" min="-1.5" max="2.5" step="0.05" value="1" aria-label="Gravity"><span id="gv">1.00g</span></div>
+   <div class="row"><button id="gtog" title="Show/hide gravity presets" style="width:30px;min-width:30px;height:28px">🌍</button><button id="gminus" class="gstep" title="Less gravity (hold to repeat)">−</button><input id="grav" type="range" min="-1.5" max="2.5" step="0.01" value="1" aria-label="Gravity"><button id="gplus" class="gstep" title="More gravity (hold to repeat)">+</button><span id="gv">1.00g</span></div>
    <div class="row" id="gpre"></div>
   </div>
   <div id="vhud" class="hud"><button id="zin" title="Zoom in">➕</button><span id="zv">100%</span><button id="zout" title="Zoom out">➖</button><button id="fit" title="Fit whole world in view (F)">⤢</button></div>
@@ -134,11 +136,20 @@ const ARROWS=['⬇','↙','⬅','↖','⬆','↗','➡','↘'];
 GP.forEach(p=>mkBtn($('#gpre'),'g'+p[1],p[0],p[1],p[3],()=>{setGravity(p[2]);toast(p[3])}));
 const dirB=mkBtn($('#gpre'),'gdir','⬇','DIR','Gravity direction (tap to turn 45°)',()=>{setDir((gdir+1)%8);toast('Gravity points '+ARROWS[gdir])});
 let G=1,gdir=0;
-function setGravity(v){G=Math.round(Math.max(-1.5,Math.min(2.5,v))*100)/100;$('#grav').value=G;$('#gv').textContent=G.toFixed(2)+'g';wakeAll();
+function setGravity(v){const old=G;G=Math.round(Math.max(-1.5,Math.min(2.5,v))*100)/100;if(+$('#grav').value!==G)$('#grav').value=G;$('#gv').textContent=G.toFixed(2)+'g';if(G!==old)wakeAll();
  document.querySelectorAll('#gpre button').forEach(b=>b.classList.toggle('on',GP.some(p=>'g'+p[1]==b.dataset.id&&Math.abs(p[2]-G)<.001)))}
 function setDir(k){gdir=k;dirB.firstChild.textContent=ARROWS[k];dirB.classList.toggle('on',k!=0);wakeAll()}
 $('#gtog').onclick=()=>{$('#ghud').classList.toggle('min');snd('click')};if(matchMedia('(max-height:430px) and (orientation:landscape)').matches)$('#ghud').classList.add('min');
 $('#grav').addEventListener('input',function(){setGravity(+this.value)});
+// smooth custom drag: capture on the slider itself so the world never steals the gesture
+(()=>{const g=$('#grav');let drag=null;const val=e=>{const r=g.getBoundingClientRect(),t=Math.max(0,Math.min(1,(e.clientX-r.left-8)/(r.width-16)));return -1.5+t*4};
+ g.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();drag=e.pointerId;try{g.setPointerCapture(e.pointerId)}catch(_){}setGravity(val(e))});
+ g.addEventListener('pointermove',e=>{if(drag!==e.pointerId)return;e.preventDefault();e.stopPropagation();setGravity(val(e))});
+ const end=e=>{if(drag===e.pointerId){drag=null;try{g.releasePointerCapture(e.pointerId)}catch(_){}}};g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);g.addEventListener('lostpointercapture',()=>drag=null);
+ for(const [id,d] of [['#gminus',-.1],['#gplus',.1]]){const b=$(id);let t1=0,t2=0;const stop=()=>{clearTimeout(t1);clearInterval(t2)};
+  b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();try{b.setPointerCapture(e.pointerId)}catch(_){}stop();setGravity(G+d);snd('click');t1=setTimeout(()=>{t2=setInterval(()=>setGravity(G+d),70)},380)});
+  ['pointerup','pointercancel','lostpointercapture'].forEach(k=>b.addEventListener(k,stop));b.addEventListener('click',e=>e.preventDefault())}
+ $('#ghud').addEventListener('pointerdown',e=>e.stopPropagation())})();
 $('#ghud').addEventListener('wheel',e=>{e.preventDefault();setGravity(G+(e.deltaY<0?.05:-.05))},{passive:false});
 function refresh(){document.querySelectorAll('#left button').forEach(b=>b.classList.toggle('on',b.dataset.id==tool));
  document.querySelectorAll('#right button').forEach(b=>b.classList.toggle('on',tool=='stamp'&&b.dataset.id==item));
@@ -168,7 +179,7 @@ function openPanel(kind){const P=panel;if(P.classList.contains('open')&&P.datase
  $('#pclose').onclick=()=>{P.classList.remove('open');snd('click')}}
 $('#gear').onclick=()=>{openPanel('set');snd('click')};$('#paint').onclick=()=>{openPanel('paint');snd('click')};
 document.addEventListener('gesturestart',e=>e.preventDefault());
-document.addEventListener('touchmove',e=>{if(!e.target.closest('.bar,#panel'))e.preventDefault()},{passive:false});
+document.addEventListener('touchmove',e=>{if(!e.target.closest('.bar,#panel,#ghud'))e.preventDefault()},{passive:false});
 document.addEventListener('dblclick',e=>e.preventDefault());
 document.addEventListener('keydown',e=>{if(e.target.tagName=='INPUT'&&e.key!='Escape')return;const k=e.key.toLowerCase();
  if((e.ctrlKey||e.metaKey)&&k=='z'){e.preventDefault();e.shiftKey?redo():undo()}else if((e.ctrlKey||e.metaKey)&&k=='y'){e.preventDefault();redo()}
