@@ -318,7 +318,7 @@ function makeBody(poly,o){
  const m=MATP[o.mat||'normal'];
  const b={id:nextId++,type:o.type||'poly',color:o.color||color,soft:!!o.soft,blob:!!o.blob,static:!!o.static,mat:o.mat||'normal',
   p:P.map(q=>({x:q.x,y:q.y,ox:q.x,oy:q.y})),rest:P.map(q=>({x:q.x-cx,y:q.y-cy})),A0:area(P),
-  k:o.k??(o.soft?(o.blob?0.006:0.045):1),press:o.press??(o.soft?(o.blob?.7:1.4):0),fric:(o.mat&&o.mat!='normal')?m.fric:o.fric??m.fric,bounce:o.mat=='bouncy'?Math.max(m.bounce,o.bounce??0):(o.mat&&o.mat!='normal')?m.bounce:o.bounce??m.bounce,im:o.mat=='heavy'?Math.min(o.im??1,1)*m.im:o.im??m.im,ang:0,cx,cy,
+  k:o.k??(o.soft?(o.blob?0.0003:0.045):1),press:o.press??(o.soft?(o.blob?(window.BPRESS??.6):1.4):0),fric:(o.mat&&o.mat!='normal')?m.fric:o.fric??m.fric,bounce:o.mat=='bouncy'?Math.max(m.bounce,o.bounce??0):(o.mat&&o.mat!='normal')?m.bounce:o.bounce??m.bounce,im:o.mat=='heavy'?Math.min(o.im??1,1)*m.im:o.im??m.im,ang:0,cx,cy,
   face:o.blob?{wink:0,blink:0,next:1.5+Math.random()*2,mood:0,poke:0,calm:0,dizzy:0}:null,fuse:o.type=='bomb'?3:0,r:o.r||0,dir:o.dir||0,sl:0,asleep:false};
  if(b.mat=='bouncy'&&b.soft)b.press*=1.4;
  b.L=b.p.map((q,i)=>{const r=b.p[(i+1)%b.p.length];return Math.hypot(r.x-q.x,r.y-q.y)});
@@ -392,22 +392,33 @@ function inside(P,x,y){let c=false;for(let i=0,j=P.length-1;i<P.length;j=i++){co
 function centroid(b){let x=0,y=0;for(const p of b.p){x+=p.x;y+=p.y}b.cx=x/b.p.length;b.cy=y/b.p.length}
 function shapeMatch(b,k){centroid(b);let A=0,B=0;const P=b.p,R=b.rest;for(let i=0;i<P.length;i++){const dx=P[i].x-b.cx,dy=P[i].y-b.cy;A+=R[i].x*dy-R[i].y*dx;B+=R[i].x*dx+R[i].y*dy}
  const a=Math.atan2(A,B),c=Math.cos(a),s=Math.sin(a);b.ang=a;if(k<=0)return;
- let q=1,ux=0,uy=1;if(b.blob){q=b.sq||1;const ga=gdir*Math.PI/4;ux=-Math.sin(ga);uy=Math.cos(ga)}
+ let q=1,ux=0,uy=1;
  for(let i=0;i<P.length;i++){const p=P[i];if(p.pin)continue;let rx=R[i].x*c-R[i].y*s,ry=R[i].x*s+R[i].y*c;if(q!==1){const al=rx*ux+ry*uy,px=rx-al*ux,py=ry-al*uy;rx=px/q+al*q*ux;ry=py/q+al*q*uy}const gx=b.cx+rx,gy=b.cy+ry;p.x+=(gx-p.x)*k;p.y+=(gy-p.y)*k}}
 function softCon(b){const P=b.p,n=P.length;
- for(let pass=0;pass<2;pass++){const L=pass?b.L2:b.L,off=pass+1,st=b.blob?(pass?.08:.55):(pass?.3:.7);
+ for(let pass=0;pass<2;pass++){const L=pass?b.L2:b.L,off=pass+1,st=b.blob?(pass?(window.BEND??0):(window.EDGE??.3)):(pass?.3:.7);
   for(let i=0;i<n;i++){const a=P[i],c=P[(i+off)%n];let dx=c.x-a.x,dy=c.y-a.y,d=Math.hypot(dx,dy)||1e-6;const f=(d-L[i])/d*.5*st;dx*=f;dy*=f;if(!a.pin){a.x+=dx;a.y+=dy}if(!c.pin){c.x-=dx;c.y-=dy}}}
  let per=0;for(let i=0;i<n;i++)per+=Math.hypot(P[(i+1)%n].x-P[i].x,P[(i+1)%n].y-P[i].y);
  const dA=(b.A0-area(P)),amt=Math.max(-6,Math.min(6,dA/per*.9*b.press));
  for(let i=0;i<n;i++){const pr=P[(i-1+n)%n],nx=P[(i+1)%n],p=P[i];let tx=nx.x-pr.x,ty=nx.y-pr.y,l=Math.hypot(tx,ty)||1;if(p.pin)continue;p.x+=ty/l*amt;p.y-=tx/l*amt}}
 // realistic slime for blobs: viscous velocity diffusion, edge-length limits, area clamp, no self-crossing
+// local soft-body structure: overlapping cluster shape-matching (rotation only) + compression-only radial core springs.
+// Deforms locally (flat bottom, bulging sides, round top, drapes over corners) instead of a global oval squash.
+function localMatch(b){const P=b.p,n=P.length,R=b.rest,K=4,kc=b.kLoc??(window.KLOC??.005);centroid(b);
+ const gx=b._gx||(b._gx=new Float32Array(n)),gy=b._gy||(b._gy=new Float32Array(n)),cnt=b._gc||(b._gc=new Float32Array(n));gx.fill(0);gy.fill(0);cnt.fill(0);
+ for(let i=0;i<n;i+=2){let cx=0,cy=0,rx=0,ry=0;for(let j=-K;j<=K;j++){const q=P[(i+j+n)%n],r=R[(i+j+n)%n];cx+=q.x;cy+=q.y;rx+=r.x;ry+=r.y}const m=2*K+1;cx/=m;cy/=m;rx/=m;ry/=m;
+  let A=0,B=0;for(let j=-K;j<=K;j++){const k=(i+j+n)%n,q=P[k],r=R[k],dx=q.x-cx,dy=q.y-cy,ex=r.x-rx,ey=r.y-ry;A+=ex*dy-ey*dx;B+=ex*dx+ey*dy}
+  const a=Math.atan2(A,B),c=Math.cos(a),s=Math.sin(a);for(let j=-K;j<=K;j++){const k=(i+j+n)%n,r=R[k],ex=r.x-rx,ey=r.y-ry;gx[k]+=cx+ex*c-ey*s;gy[k]+=cy+ex*s+ey*c;cnt[k]++}}
+ for(let k=0;k<n;k++){const p=P[k];if(p.pin||!cnt[k])continue;p.x+=(gx[k]/cnt[k]-p.x)*kc;p.y+=(gy[k]/cnt[k]-p.y)*kc}
+ // radial core: points may not collapse toward the centre (keeps volume in the body so it bulges out sideways)
+ const r0=b._r0||(b._r0=Math.sqrt(Math.abs(b.A0)/Math.PI));for(const p of P){if(p.pin)continue;const dx=p.x-b.cx,dy=p.y-b.cy,d=Math.hypot(dx,dy)||1e-6,lo=r0*.55;if(d<lo){const f=(lo-d)/d*.4;p.x+=dx*f;p.y+=dy*f}}}
 function slime(b){const P=b.p,n=P.length,L=b.L;
- {let vx=0,vy=0;for(const p of P){vx+=p.x-p.ox;vy+=p.y-p.oy}const v=Math.hypot(vx,vy)/n,gr=[...grabs.values()].some(g=>g.b===b),t=(gr||G<=0)?1:v<1.2/ts?.8:1;b.sq=(b.sq||1)+(t-(b.sq||1))*.04}
+ localMatch(b);
  // viscosity: each point's velocity is pulled toward its neighbours' (smooth goo, decaying jiggle)
  const vx=b._vx||(b._vx=new Float32Array(n)),vy=b._vy||(b._vy=new Float32Array(n));for(let i=0;i<n;i++){vx[i]=P[i].x-P[i].ox;vy[i]=P[i].y-P[i].oy}
- for(let i=0;i<n;i++){const p=P[i];if(p.pin)continue;const a=(i+n-1)%n,c=(i+1)%n,ax=(vx[a]+vx[c])*.5,ay=(vy[a]+vy[c])*.5;p.ox-=(ax-vx[i])*.42;p.oy-=(ay-vy[i])*.42}
+ {let mx=0,my=0;for(let i=0;i<n;i++){mx+=vx[i];my+=vy[i]}mx/=n;my/=n;const dd=window.BDAMP??.07;for(let i=0;i<n;i++){const p=P[i];if(p.pin)continue;p.ox+=(vx[i]-mx)*dd;p.oy+=(vy[i]-my)*dd;vx[i]-=(vx[i]-mx)*dd;vy[i]-=(vy[i]-my)*dd}}
+ for(let i=0;i<n;i++){const p=P[i];if(p.pin)continue;const a=(i+n-1)%n,c=(i+1)%n,ax=(vx[a]+vx[c])*.5,ay=(vy[a]+vy[c])*.5;p.ox-=(ax-vx[i])*.26;p.oy-=(ay-vy[i])*.26}
  // edge length limits: stretch like goo but never tear or collapse
- for(let i=0;i<n;i++){const a=P[i],c=P[(i+1)%n];let dx=c.x-a.x,dy=c.y-a.y,d=Math.hypot(dx,dy)||1e-6;const lo=L[i]*.35,hi=L[i]*2.6;if(d>=lo&&d<=hi)continue;const t=d<lo?lo:hi,f=(d-t)/d*.5;dx*=f;dy*=f;if(!a.pin){a.x+=dx;a.y+=dy}if(!c.pin){c.x-=dx;c.y-=dy}}
+ for(let i=0;i<n;i++){const a=P[i],c=P[(i+1)%n];let dx=c.x-a.x,dy=c.y-a.y,d=Math.hypot(dx,dy)||1e-6;const lo=L[i]*.35,hi=L[i]*(window.EHI??2.6);if(d>=lo&&d<=hi)continue;const t=d<lo?lo:hi,f=(d-t)/d*.5;dx*=f;dy*=f;if(!a.pin){a.x+=dx;a.y+=dy}if(!c.pin){c.x-=dx;c.y-=dy}}
  // area clamp: squish flat, but keep at least 60% / at most 160% of its volume
  const A=area(P),r=A/b.A0;if(r<.6||r>1.6){centroid(b);const s=Math.sqrt((r<.6?.6:1.6)/Math.max(.05,r)),k=r<0?1:.5,f=1+(s-1)*k;for(const p of P){if(p.pin)continue;p.x=b.cx+(p.x-b.cx)*f;p.y=b.cy+(p.y-b.cy)*f}}}
 function selfCollide(b){const P=b.p,n=P.length,md=(b.Lm||(b.Lm=b.L.reduce((a,c)=>a+c,0)/n))*.9,md2=md*md;
@@ -445,7 +456,7 @@ function collide(A,B){const wa=(A.static||A.asleep)?0:A.im,wb=(B.static||B.aslee
   if(sB){if(!a.pin){a.x-=dx*sB*(1-bt);a.y-=dy*sB*(1-bt)}if(!c.pin){c.x-=dx*sB*bt;c.y-=dy*sB*bt}}
   const d=Math.hypot(dx,dy)||1,nx=dx/d,ny=dy/d;
   let rx=vpx-vex,ry=vpy-vey;const rn=rx*nx+ry*ny;rx-=rn*nx;ry-=rn*ny;
-  const rt=Math.hypot(rx,ry);let mu=sticky?1:Math.min(A.fric,B.fric)*.35;if(!sticky&&rt<.15&&Math.min(A.fric,B.fric)>.1)mu=1; // static friction kills micro-slide jitter
+  const rt=Math.hypot(rx,ry);let mu=sticky?1:(A.blob&&B.blob)?1:Math.min(A.fric,B.fric)*.35;if(!sticky&&rt<.15&&Math.min(A.fric,B.fric)>.1)mu=1; // static friction kills micro-slide jitter
   p.ox+=rx*mu*sA;p.oy+=ry*mu*sA;
   if(sB){a.ox-=rx*mu*sB*(1-bt);a.oy-=ry*mu*sB*(1-bt);c.ox-=rx*mu*sB*bt;c.oy-=ry*mu*sB*bt}
   if(bouncy&&ITER==0&&rn<-1){const dv=-(1+bouncy)*rn*.5;p.ox-=nx*dv*sA;p.oy-=ny*dv*sA}
@@ -624,9 +635,14 @@ function smartMood(b,F,ctx2){const {held,hard,multi,squish,spd}=ctx2;const base=
  if(F.hit>0)return b.mat=='bouncy'?'laughing':'wow';if(spd>7*ts)return'amazed';if(F.love>0)return b.id%2?'kissy':'love';if(F.fan>0)return'excited';if(F.mag>0)return'curious';
  if(lookAt&&performance.now()-lookAt.t<1200){const d=Math.hypot(lookAt.x-b.cx,lookAt.y-b.cy),r=Math.sqrt(Math.abs(b.A0)/Math.PI);if(d<r*1.6)return'bashful';if(d<r*3.5)return b.id%2?'playful':'curious'}
  if(F.calm>14)return'sleepy';if(F.idleX&&F.idleT>0)return F.idleX;if(F.calm>6)return'relaxed';return base}
-function drawFace(b,dt){const F=b.face,r=Math.sqrt(Math.abs(b.A0)/Math.PI);const M0=affine(b);
+function faceFrame(b,r){if(!b.blob){const M=affine(b);M.t=[b.cx,b.cy];return M}
+ const ga=gdir*Math.PI/4,ux=Math.sin(ga),uy=-Math.cos(ga);let x=0,y=0,w=0;for(const p of b.p){const h=(p.x-b.cx)*ux+(p.y-b.cy)*uy;if(h<-r*.15)continue;x+=p.x;y+=p.y;w++}
+ x/=w||1;y/=w||1;let top=-1e9;for(const p of b.p){const h=(p.x-b.cx)*ux+(p.y-b.cy)*uy;if(h>top)top=h}
+ const fx=b.cx+ux*(top-r*.95),fy=b.cy+uy*(top-r*.95),mx=(x+fx)/2,my=(y+fy)/2;
+ const s=Math.max(.75,Math.min(1.15,Math.sqrt(Math.abs(area(b.p))/Math.abs(b.A0)))),a=Math.max(-.3,Math.min(.3,Math.atan2(Math.sin(b.ang),Math.cos(b.ang))*.5)),c=Math.cos(a)*s,sn=Math.sin(a)*s;const M=[c,-sn,sn,c];M.t=[fx,fy];return M}
+function drawFace(b,dt){const F=b.face,r=Math.sqrt(Math.abs(b.A0)/Math.PI);const M0=faceFrame(b,r);
  // low-pass the face frame so it glides with the goo instead of jumping
- if(!F.M){F.M=M0.slice();F.fx=b.cx;F.fy=b.cy}for(let i=0;i<4;i++)F.M[i]+=(M0[i]-F.M[i])*.35;F.fx+=(b.cx-F.fx)*.6;F.fy+=(b.cy-F.fy)*.6;const M=F.M;
+ const T=M0.t;if(!F.M){F.M=M0.slice();F.fx=T[0];F.fy=T[1]}for(let i=0;i<4;i++)F.M[i]+=(M0[i]-F.M[i])*.35;F.fx+=(T[0]-F.fx)*.6;F.fy+=(T[1]-F.fy)*.6;const M=F.M;
  const sxx=M0[0]*M0[0]+M0[2]*M0[2],syy=M0[1]*M0[1]+M0[3]*M0[3],sxy=M0[0]*M0[1]+M0[2]*M0[3],tr=sxx+syy,disc=Math.sqrt(Math.max(0,(sxx-syy)**2/4+sxy*sxy)),aniso=Math.sqrt(tr/2+disc)/Math.sqrt(Math.max(1e-4,tr/2-disc));
  const sp0=b.pcx!=null?Math.hypot(b.cx-b.pcx,b.cy-b.pcy)/Math.max(dt,1e-3)/60:0;b.pcx=b.cx;b.pcy=b.cy;F.spd=(F.spd||0)*.7+sp0*.3;const spd=F.spd;
  if(F.dizzy>0)F.dizzy-=dt;const gs=[...grabs.values()].filter(g=>g.b===b),held=gs.length>0;
