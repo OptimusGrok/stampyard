@@ -7,7 +7,7 @@
 *{box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 :root{--ink:#1a1040;--sat:env(safe-area-inset-top);--sar:env(safe-area-inset-right);--sab:env(safe-area-inset-bottom);--sal:env(safe-area-inset-left)}
 html,body{margin:0;height:100%;overflow:hidden;background:#ffd84a;font-family:"Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif;touch-action:none;overscroll-behavior:none;color:var(--ink)}
-#app{position:fixed;inset:0;display:grid;padding:calc(var(--sat) + 6px) calc(var(--sar) + 6px) calc(var(--sab) + 6px) calc(var(--sal) + 6px);
+#app{position:fixed;top:0;left:0;right:0;bottom:auto;height:100vh;height:100dvh;max-height:var(--vvh,100dvh);display:grid;padding:calc(var(--sat) + 6px) calc(var(--sar) + 6px) calc(var(--sab) + 6px) calc(var(--sal) + 6px);
  background:repeating-conic-gradient(#ffd84a 0 25%,#ffc61a 0 50%) 0 0/28px 28px;gap:6px;
  grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top top" "left stage right" "bot bot bot"}
 .bar{display:flex;gap:6px;align-items:center;padding:6px;background:#3b2a8f;border:4px solid var(--ink);border-radius:16px;box-shadow:0 4px 0 var(--ink);min-width:0;min-height:0;scrollbar-width:none}
@@ -21,7 +21,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#ffd84a;font-family:"A
 .lab{flex:0 0 auto;color:#fff;font-size:10px;font-weight:900;letter-spacing:.5px;text-shadow:0 1px 0 var(--ink)}
 #stage{grid-area:stage;position:relative;border:6px solid var(--ink);border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 5px 0 var(--ink);min-height:0;min-width:0}
 canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
-#logo{font-size:26px;font-weight:900;letter-spacing:1px;margin-right:auto;padding:0 6px;white-space:nowrap}
+#logo{font-size:26px;font-weight:900;letter-spacing:1px;margin-right:auto;padding:0 6px;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden}
 #logo span{display:inline-block;-webkit-text-stroke:1.5px var(--ink);paint-order:stroke;text-shadow:0 3px 0 var(--ink);animation:bob 2.4s ease-in-out infinite}
 @keyframes bob{50%{transform:translateY(-3px) rotate(-4deg)}}
 button{flex:0 0 auto;font:inherit;font-size:20px;width:50px;min-width:50px;height:48px;border:3px solid var(--ink);border-radius:12px;background:#fff8e1;box-shadow:0 3px 0 var(--ink);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;padding:2px;color:var(--ink)}
@@ -482,6 +482,14 @@ let last=performance.now(),acc=0,fpsT=0,fpsN=0;
 function loop(t){requestAnimationFrame(loop);let dt=Math.min(.05,(t-last)/1000);last=t;
  const s0=performance.now();if(playing){acc+=dt;let n=0;while(acc>=1/60&&n<2){step(1/60*ts);acc-=1/60;n++}if(n==2)acc=0}stats.stepMs=performance.now()-s0;
  render(dt);fpsN++;fpsT+=dt;stats.frames++;if(fpsT>=1){stats.fps=fpsN/fpsT;fpsN=0;fpsT=0}}
+// Fit every bar to the visible viewport (iPad Safari toolbar, split view, small phones): shrink, never hide.
+(()=>{const app=$('#app'),bars=[...document.querySelectorAll('#app>.bar')];let q=0;
+ function fit(){q=0;const vv=window.visualViewport;if(vv&&vv.height<innerHeight-1)app.style.setProperty('--vvh',Math.round(vv.height)+'px');else app.style.removeProperty('--vvh');
+  for(const b of bars)b.style.zoom='';
+  for(let pass=0;pass<4;pass++){let ch=false;for(const b of bars){if(!b.offsetParent&&getComputedStyle(b).display=='none')continue;const z=+b.style.zoom||1,r=Math.max(b.scrollWidth/b.clientWidth,b.scrollHeight/b.clientHeight);if(r>1.005){b.style.zoom=Math.max(.45,z/r*.99).toFixed(3);ch=true}}if(!ch)break}}
+ const later=()=>{if(!q)q=requestAnimationFrame(fit)};
+ addEventListener('resize',later);addEventListener('orientationchange',()=>setTimeout(fit,250));window.visualViewport&&visualViewport.addEventListener('resize',later);
+ document.fonts&&document.fonts.ready.then(fit);window.fitBars=fit;fit();setTimeout(fit,300)})();
 resize();if(worldSize!='small')setWorldSize(worldSize,true);setGravity(1);refresh();
 setTimeout(()=>{if(!bodies.length){const cx=worldSize=='small'?W*.5:cam.x+W/cam.z*.5,vw=Math.min(W/cam.z,WW);spawn('plank',cx,FLOOR-80);spawn('crate',cx-vw*.25,FLOOR-40);spawn('ball',cx+vw*.25,FLOOR-40);color='#ff5c7a';spawn('blob',cx,FLOOR-170);undoStack=[];refresh();toast('Tap to stamp · drag to grab · 2 fingers to stretch!')}},60);
 requestAnimationFrame(loop);
