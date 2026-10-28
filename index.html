@@ -411,7 +411,12 @@ function localMatch(b){const P=b.p,n=P.length,R=b.rest,K=4,kc=b.kLoc??(window.KL
  for(let k=0;k<n;k++){const p=P[k];if(p.pin||!cnt[k])continue;p.x+=(gx[k]/cnt[k]-p.x)*kc;p.y+=(gy[k]/cnt[k]-p.y)*kc}
  // radial core: points may not collapse toward the centre (keeps volume in the body so it bulges out sideways)
  const r0=b._r0||(b._r0=Math.sqrt(Math.abs(b.A0)/Math.PI));for(const p of P){if(p.pin)continue;const dx=p.x-b.cx,dy=p.y-b.cy,d=Math.hypot(dx,dy)||1e-6,lo=r0*.55;if(d<lo){const f=(lo-d)/d*.4;p.x+=dx*f;p.y+=dy*f}}}
+function tangled(P){const n=P.length,o=(p,q,r)=>(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);for(let i=0;i<n;i++){const a=P[i],c=P[(i+1)%n];for(let j=i+2;j<n;j++){if(i==0&&j==n-1)continue;const d=P[j],e=P[(j+1)%n];if(Math.max(a.x,c.x)<Math.min(d.x,e.x)||Math.min(a.x,c.x)>Math.max(d.x,e.x)||Math.max(a.y,c.y)<Math.min(d.y,e.y)||Math.min(a.y,c.y)>Math.max(d.y,e.y))continue;if(o(a,c,d)*o(a,c,e)<0&&o(d,e,a)*o(d,e,c)<0)return true}}return false}
 function slime(b){const P=b.p,n=P.length,L=b.L;
+ // spring-back: no memory of squashes. Once nothing presses on it (and nobody holds it) the rest-shape pull ramps up;
+ // a tangled/inverted outline gets a strong pull back to its rest pose until it is a clean loop again.
+ {const held=[...grabs.values()].some(g=>g.b===b);b._ct=(b._ct??9)+1/60;const free=!held&&b._ct>.12;b._tg=((b._tgN=(b._tgN||0)+1)%3==0)?tangled(P):b._tg;
+  const want=b._tg&&!held?.06:free?(window.KFREE??.0012):0;b.kx=(b.kx||0)+(want-(b.kx||0))*(want>(b.kx||0)?.08:.3)}
  localMatch(b);
  // viscosity: each point's velocity is pulled toward its neighbours' (smooth goo, decaying jiggle)
  const vx=b._vx||(b._vx=new Float32Array(n)),vy=b._vy||(b._vy=new Float32Array(n));for(let i=0;i<n;i++){vx[i]=P[i].x-P[i].ox;vy[i]=P[i].y-P[i].oy}
@@ -448,7 +453,7 @@ function collide(A,B){const wa=(A.static||A.asleep)?0:A.im,wb=(B.static||B.aslee
   const vpx=p.x-p.ox,vpy=p.y-p.oy,vex=(a.x-a.ox)*(1-bt)+(c.x-c.ox)*bt,vey=(a.y-a.oy)*(1-bt)+(c.y-c.oy)*bt;
   if(A.asleep||B.asleep){const rv=Math.hypot(vpx-vex,vpy-vey);if(rv>.5||best>4){wake(A);wake(B)}}
   const pa=(p.pin||A.static||A.asleep)?0:A.im,pb=((a.pin&&c.pin)||B.static||B.asleep)?0:B.im,w=pa+pb*((1-bt)**2+bt**2);if(!w)continue;
-  const sA=pa/w,sB=pb/w;
+  const sA=pa/w,sB=pb/w;if(A.blob)A._ct=0;if(B.blob)B._ct=0;
   if(B.type=='conveyor'&&!p.pin){const tv=2.2*B.dir*ts;p.ox+=((p.x-p.ox)-tv)*.25}
   if(sticky&&ITER==0)glue(A,pi,{b:B,i:bt<.5?bi:(bi+1)%m});
   if(B.type=='spring'){p.oy=p.y+14;if(!B.cool){B.cool=.25;snd('spring')}}
@@ -500,7 +505,7 @@ const grabs=new Map(); // pointerId -> {b,i,x,y}
 function windFor(b){let ax=0,ay=0;for(const f of bodies){if(f===b)continue;if(f.type=='magnet'){if(b.type=='balloon'||b.type=='cloud')continue;const rx=f.cx-b.cx,ry=f.cy-b.cy,d=Math.hypot(rx,ry);if(d<320&&d>1){const near=Math.min(1,Math.max(0,(d-Math.sqrt(Math.abs(f.A0))*.5-Math.sqrt(Math.abs(b.A0))*.5)/40)),s=(1-d/320)**1.5*(b.soft?2600:4200)*(.15+.85*near);ax+=rx/d*s;ay+=ry/d*s}continue}if(f.type!='fan')continue;const a=f.dir*Math.PI/4,dx=-Math.sin(a),dy=Math.cos(a);const rx=b.cx-f.cx,ry=b.cy-f.cy,al=rx*dx+ry*dy,pe=Math.abs(rx*dy-ry*dx);
  if(al>0&&al<380&&pe<50+al*.35){const s=(1-al/380)*(1-pe/(50+al*.35)*.6)*2600;ax+=dx*s;ay+=dy*s}}return[ax,ay]}
 function grabPoint(gr){const b=gr.b;centroid(b);const c=Math.cos(b.ang),s=Math.sin(b.ang);return{x:b.cx+gr.lx*c-gr.ly*s,y:b.cy+gr.lx*s+gr.ly*c}}
-function pullGrab(gr){const b=gr.b;if(b.static||!b.p.length)return;const q=grabPoint(gr);if(gr.tx==null){gr.tx=gr.x;gr.ty=gr.y}gr.tx+=(gr.x-gr.tx)*.09;gr.ty+=(gr.y-gr.ty)*.09;const hd=Math.hypot(gr.x-q.x,gr.y-q.y);let dx=gr.tx-q.x,dy=gr.ty-q.y;const d=Math.hypot(dx,dy),cap=(hd>130?14:b.blob?4.5:6)*ts;gr.hard=hd>130;if(d>cap){dx*=cap/d;dy*=cap/d}
+function pullGrab(gr){const b=gr.b;if(b.static||!b.p.length)return;const q=grabPoint(gr);if(gr.tx==null){gr.tx=gr.x;gr.ty=gr.y}{let gx=gr.x,gy=gr.y;if(b.blob){const m=(b._r0||30)*.6;gx=Math.max(m,Math.min(WW-m,gx));gy=Math.max(m,Math.min(FLOOR-m*.5,gy))}gr.tx+=(gx-gr.tx)*.09;gr.ty+=(gy-gr.ty)*.09}const hd=Math.hypot(gr.x-q.x,gr.y-q.y);let dx=gr.tx-q.x,dy=gr.ty-q.y;const d=Math.hypot(dx,dy),cap=(hd>130?14:b.blob?4.5:6)*ts;gr.hard=hd>130;if(d>cap){dx*=cap/d;dy*=cap/d}
  const k=b.soft?.45:.4,sg=gr.sig,i2=1/(2*sg*sg);let W=0;for(const p of b.p){if(p.pin)continue;const w=Math.exp(-((p.x-q.x)**2+(p.y-q.y)**2)*i2);p.w_=w;W+=w}
  const nrm=b.soft?1/Math.max(.35,Math.min(1,W/3)):b.p.length/Math.max(W,1e-6);for(const p of b.p){if(p.pin)continue;const w=Math.min(1.6,p.w_*nrm);p.x+=dx*k*w;p.y+=dy*k*w}gr.qx=q.x;gr.qy=q.y}
 function makeGrab(b,x,y){centroid(b);aabb(b);const c=Math.cos(-b.ang),s=Math.sin(-b.ang),rx=x-b.cx,ry=y-b.cy;let lx=rx*c-ry*s,ly=rx*s+ry*c;
@@ -522,7 +527,7 @@ function step(dt){let vm=0;for(const b of bodies){if(b.static||b.asleep)continue
   for(let it=0;it<3;it++){ITER=it;
    for(const gr of grabs.values())pullGrab(gr)
    for(const j of joints)solveJoint(j);
-   for(const b of bodies){if(b.static||b.asleep)continue;if(b.soft){softCon(b);shapeMatch(b,b.k)}else shapeMatch(b,1)}
+   for(const b of bodies){if(b.static||b.asleep)continue;if(b.soft){softCon(b);shapeMatch(b,b.blob?b.k+(b.kx||0):b.k)}else shapeMatch(b,1)}
    for(const b of bodies)aabb(b);
    pairs((A,B)=>{collide(A,B);collide(B,A)});
    for(const b of bodies)walls(b)}
@@ -538,7 +543,7 @@ function step(dt){let vm=0;for(const b of bodies){if(b.static||b.asleep)continue
  for(const b of bodies){centroid(b);if(b.cool)b.cool=Math.max(0,b.cool-dt);if(b.type=='bomb'){b.fuse-=dt;if(b.fuse<=0)explode(b)}
   // sleeping: rigid bodies at rest stop integrating, so stacks don't jiggle
   if(!b.static&&!b.soft&&!b.asleep){let mv=0;for(const p of b.p){const v=Math.abs(p.x-p.ox)+Math.abs(p.y-p.oy);if(v>mv)mv=v}
-   if(mv<(b.soft?.04:.06)*ts&&!jb.has(b)&&!b.p.some(p=>p.pin)&&G!=0&&!b.wx&&!b.wy){b.sl+=dt;if(b.sl>(b.soft?1:.5)){b.asleep=true;for(const p of b.p){p.ox=p.x;p.oy=p.y}}}else b.sl=0}}
+   if(mv<(b.soft?.04:.06)*ts&&!(b.blob&&(b._tg||b._ct<.5))&&!jb.has(b)&&!b.p.some(p=>p.pin)&&G!=0&&!b.wx&&!b.wy){b.sl+=dt;if(b.sl>(b.soft?1:.5)){b.asleep=true;for(const p of b.p){p.ox=p.x;p.oy=p.y}}}else b.sl=0}}
 }
 function jp(e){if(!e.b)return e;if(e.i===-1){let x=0,y=0;const P=e.b.p;for(const p of P){x+=p.x;y+=p.y}return{x:x/P.length,y:y/P.length}}return e.b.p[e.i]}
 function solveAxle(j){const A=j.a.b,B=j.b.b,p=A.p[j.a.i];if(!p)return;const c=jp(j.b);const dx=c.x-p.x,dy=c.y-p.y,d=Math.hypot(dx,dy)||1e-6,e=(d-j.len)/d;if(Math.abs(e*d)<.01)return;
@@ -635,14 +640,22 @@ function smartMood(b,F,ctx2){const {held,hard,multi,squish,spd}=ctx2;const base=
  if(F.hit>0)return b.mat=='bouncy'?'laughing':'wow';if(spd>7*ts)return'amazed';if(F.love>0)return b.id%2?'kissy':'love';if(F.fan>0)return'excited';if(F.mag>0)return'curious';
  if(lookAt&&performance.now()-lookAt.t<1200){const d=Math.hypot(lookAt.x-b.cx,lookAt.y-b.cy),r=Math.sqrt(Math.abs(b.A0)/Math.PI);if(d<r*1.6)return'bashful';if(d<r*3.5)return b.id%2?'playful':'curious'}
  if(F.calm>14)return'sleepy';if(F.idleX&&F.idleT>0)return F.idleX;if(F.calm>6)return'relaxed';return base}
+const FACE_R=.72;
+// signed distance to a polygon outline: + inside, - outside
+function sdPoly(P,x,y){let m=1e9;const n=P.length;for(let i=0;i<n;i++){const a=P[i],c=P[(i+1)%n],ex=c.x-a.x,ey=c.y-a.y,l=ex*ex+ey*ey||1e-9;let t=((x-a.x)*ex+(y-a.y)*ey)/l;t=t<0?0:t>1?1:t;const d=(a.x+ex*t-x)**2+(a.y+ey*t-y)**2;if(d<m)m=d}m=Math.sqrt(m);return inside(P,x,y)?m:-m}
 function faceFrame(b,r){if(!b.blob){const M=affine(b);M.t=[b.cx,b.cy];return M}
  const ga=gdir*Math.PI/4,ux=Math.sin(ga),uy=-Math.cos(ga);let x=0,y=0,w=0;for(const p of b.p){const h=(p.x-b.cx)*ux+(p.y-b.cy)*uy;if(h<-r*.15)continue;x+=p.x;y+=p.y;w++}
  x/=w||1;y/=w||1;let top=-1e9;for(const p of b.p){const h=(p.x-b.cx)*ux+(p.y-b.cy)*uy;if(h>top)top=h}
- const fx=b.cx+ux*(top-r*.95),fy=b.cy+uy*(top-r*.95),mx=(x+fx)/2,my=(y+fy)/2;
- const s=Math.max(.75,Math.min(1.15,Math.sqrt(Math.abs(area(b.p))/Math.abs(b.A0)))),a=Math.max(-.3,Math.min(.3,Math.atan2(Math.sin(b.ang),Math.cos(b.ang))*.5)),c=Math.cos(a)*s,sn=Math.sin(a)*s;const M=[c,-sn,sn,c];M.t=[fx,fy];return M}
+ let fx=b.cx+ux*(top-r*.95),fy=b.cy+uy*(top-r*.95);
+ // keep the face fully inside: pick the most-interior spot near the preferred one and shrink to the local inscribed size
+ const fr0=r*FACE_R;let bd=sdPoly(b.p,fx,fy),bs=Math.min(bd,fr0)-1e9*(bd<=0);
+ 
+ const fit=Math.max(.25,Math.min(1,bd*.95/fr0));
+ const s=fit*Math.max(.75,Math.min(1.15,Math.sqrt(Math.abs(area(b.p))/Math.abs(b.A0)))),a=Math.max(-.3,Math.min(.3,Math.atan2(Math.sin(b.ang),Math.cos(b.ang))*.5)),c=Math.cos(a)*s,sn=Math.sin(a)*s;const M=[c,-sn,sn,c];M.t=[fx,fy];return M}
 function drawFace(b,dt){const F=b.face,r=Math.sqrt(Math.abs(b.A0)/Math.PI);const M0=faceFrame(b,r);
  // low-pass the face frame so it glides with the goo instead of jumping
- const T=M0.t;if(!F.M){F.M=M0.slice();F.fx=T[0];F.fy=T[1]}for(let i=0;i<4;i++)F.M[i]+=(M0[i]-F.M[i])*.35;F.fx+=(T[0]-F.fx)*.6;F.fy+=(T[1]-F.fy)*.6;const M=F.M;
+ const T=M0.t;if(!F.M){F.M=M0.slice();F.fx=T[0];F.fy=T[1]}for(let i=0;i<4;i++)F.M[i]+=(M0[i]-F.M[i])*.35;if(F.gx==null){F.gx=F.fx;F.gy=F.fy}F.gx+=(T[0]-F.gx)*.6;F.gy+=(T[1]-F.gy)*.6;F.fx+=(F.gx-F.fx)*.6;F.fy+=(F.gy-F.fy)*.6;const M=F.M;
+ if(b.blob){let d=sdPoly(b.p,F.fx,F.fy);{const m=r*FACE_R*.6;for(let it=0;it<4&&d<m;it++){const e=1.5,gx=sdPoly(b.p,F.fx+e,F.fy)-sdPoly(b.p,F.fx-e,F.fy),gy=sdPoly(b.p,F.fx,F.fy+e)-sdPoly(b.p,F.fx,F.fy-e),gl=Math.hypot(gx,gy)||1,st=(m-d)*.5;F.fx+=gx/gl*st;F.fy+=gy/gl*st;F.gx+=gx/gl*st;F.gy+=gy/gl*st;const nd=sdPoly(b.p,F.fx,F.fy);if(nd<d){F.fx-=gx/gl*st;F.fy-=gy/gl*st;F.gx-=gx/gl*st;F.gy-=gy/gl*st;break}d=nd}if(d<=r*.02){aabb(b);let bs=d;for(let i=0;i<=8;i++)for(let j=0;j<=8;j++){const qx=b.x0+(b.x1-b.x0)*i/8,qy=b.y0+(b.y1-b.y0)*j/8,q=sdPoly(b.p,qx,qy);if(q>bs){bs=q;F.fx=F.gx=qx;F.fy=F.gy=qy}}d=bs}}const sc=Math.sqrt(Math.abs(M[0]*M[3]-M[1]*M[2]))||1,mx=Math.max(.05,d*.95/(r*FACE_R));if(sc>mx){const k=mx/sc;for(let i=0;i<4;i++)M[i]*=k}F._fc=[F.fx,F.fy,r*FACE_R*Math.min(sc,mx)];if(window.__faceDbg)F._fp=b.p.map(p=>({x:p.x,y:p.y}))}
  const sxx=M0[0]*M0[0]+M0[2]*M0[2],syy=M0[1]*M0[1]+M0[3]*M0[3],sxy=M0[0]*M0[1]+M0[2]*M0[3],tr=sxx+syy,disc=Math.sqrt(Math.max(0,(sxx-syy)**2/4+sxy*sxy)),aniso=Math.sqrt(tr/2+disc)/Math.sqrt(Math.max(1e-4,tr/2-disc));
  const sp0=b.pcx!=null?Math.hypot(b.cx-b.pcx,b.cy-b.pcy)/Math.max(dt,1e-3)/60:0;b.pcx=b.cx;b.pcy=b.cy;F.spd=(F.spd||0)*.7+sp0*.3;const spd=F.spd;
  if(F.dizzy>0)F.dizzy-=dt;const gs=[...grabs.values()].filter(g=>g.b===b),held=gs.length>0;
@@ -662,7 +675,7 @@ function drawFace(b,dt){const F=b.face,r=Math.sqrt(Math.abs(b.A0)/Math.PI);const
  if(tx==null&&F.tg){const o=bodies.find(q=>q.id===F.tg);if(o){tx=o.cx;ty=o.cy}}
  let lx=F.lx||0,ly=F.ly||0;if(tx!=null){const c=Math.cos(-b.ang),sn=Math.sin(-b.ang),dx=tx-b.cx,dy=ty-b.cy,l=Math.hypot(dx,dy)||1;lx=(dx*c-dy*sn)/l;ly=(dx*sn+dy*c)/l}
  F.px=(F.px||0)+(lx-(F.px||0))*.15;F.py=(F.py||0)+(ly-(F.py||0))*.15;
- ctx.save();ctx.translate(F.fx,F.fy);ctx.transform(M[0],M[2],M[1],M[3],0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=r*.07;ctx.strokeStyle='#1a1040';ctx.fillStyle='#1a1040';
+ ctx.save();if(b.blob){ctx.beginPath();for(const p of b.p)ctx.lineTo(p.x,p.y);ctx.closePath();ctx.clip()}ctx.translate(F.fx,F.fy);ctx.transform(M[0],M[2],M[1],M[3],0,0);ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=r*.07;ctx.strokeStyle='#1a1040';ctx.fillStyle='#1a1040';
  if(F.fade<1&&F.prev&&EXPR[F.prev]){ctx.globalAlpha=1-F.fade;paintFace(F.prev,r,F);ctx.globalAlpha=F.fade}
  paintFace(F.cur,r,F);ctx.globalAlpha=1;ctx.restore()}
 function paintFace(name,r,F){const E=EXPR[name]||EXPR.happy,T=performance.now()/1000,ex=r*.34,ey=-r*.18,er=r*.12,INK='#1a1040',PINK='#ff6f91';
@@ -770,7 +783,7 @@ function drawFaceTick(b){}
 // ---------- Loop ----------
 function setSlow(v){const r=v/ts;for(const b of bodies)for(const p of b.p){p.ox=p.x-(p.x-p.ox)*r;p.oy=p.y-(p.y-p.oy)*r}ts=v;refresh()}
 const stats={fps:0,frames:0,stepMs:0};
-window.__sy={stats,get unstuck(){return unstuckCount},opt,setTray,TRAY,overlapsAny:b=>overlapsAny(b),get bodies(){return bodies},get joints(){return joints},spawn:(...a)=>{const b=spawn(...a);if(b){centroid(b);aabb(b)}return b},step,grabs,cam,setTool:t=>{tool=t;refresh()},setSoft:v=>{soft=v;refresh()},setMat:m=>{mat=m;refresh()},setItem:i=>{item=i;refresh()},
+window.__sy={stats,get unstuck(){return unstuckCount},removeBody:b=>removeBody(b),opt,setTray,TRAY,overlapsAny:b=>overlapsAny(b),get bodies(){return bodies},get joints(){return joints},spawn:(...a)=>{const b=spawn(...a);if(b){centroid(b);aabb(b)}return b},step,grabs,cam,setTool:t=>{tool=t;refresh()},setSoft:v=>{soft=v;refresh()},setMat:m=>{mat=m;refresh()},setItem:i=>{item=i;refresh()},
  setGravity,setDir,get G(){return G},get world(){return{size:worldSize,WW,WH,FLOOR,W,H}},setWorldSize,fitView,undo,redo,saveSlot,loadSlot,setSlow,setPlaying,get ts(){return ts},explode,clear:()=>{bodies=[];joints=[]},
  setFace:(b,m,lock)=>{b.face.lock=!!lock;setFace(b,m)},moodFromWord,get EXPR(){return EXPR},openFacePal,addJoint:(a,b,t)=>{const A=jp(a),B=jp(b);joints.push({a,b,len:Math.hypot(A.x-B.x,A.y-B.y)*(t=='band'?.6:1),t})}};
 let last=performance.now(),acc=0,fpsT=0,fpsN=0;
